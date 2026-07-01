@@ -30,7 +30,7 @@ SEARCH_URL = "https://timkiem.vnexpress.net/"
 def search_vnexpress(keyword: str, page: int = 1) -> list[dict]:
     """
     Tìm kiếm bài viết VnExpress theo từ khoá.
-    Trả về danh sách dict: {title, url, description, time_str}
+    Trả về danh sách dict: {title, url, description, publish_time, keyword, crawled_at}
     """
     params = {
         "q": keyword,
@@ -53,21 +53,40 @@ def search_vnexpress(keyword: str, page: int = 1) -> list[dict]:
     soup = BeautifulSoup(resp.text, "html.parser")
     articles = []
 
-    for item in soup.select("article.item-news"):
-        title_tag = item.select_one("h3.title-news a, h2.title-news a")
-        desc_tag  = item.select_one("p.description a, p.description")
-        time_tag  = item.select_one("span.time-count, span.date")
+    # Selector đúng với HTML thực tế của VnExpress (class có thể là item-news-common, item-news-special...)
+    for item in soup.select("article[data-url]"):
+        # Lấy URL từ attribute data-url (ổn định hơn href)
+        url = item.get("data-url", "")
+
+        # Title: thẻ a trong h3 hoặc h2 có class title-news
+        title_tag = item.select_one(".title-news a")
+        if not title_tag:
+            # fallback: lấy thẻ a đầu tiên trong thumb
+            title_tag = item.select_one("a[title]")
 
         if not title_tag:
             continue
 
+        title = title_tag.get_text(strip=True) or title_tag.get("title", "")
+
+        # Description
+        desc_tag = item.select_one(".description")
+        description = desc_tag.get_text(strip=True) if desc_tag else ""
+
+        # Thời gian publish từ data-publishtime (Unix timestamp)
+        publish_ts = item.get("data-publishtime", "")
+        try:
+            publish_time = datetime.fromtimestamp(int(publish_ts)).strftime("%Y-%m-%d %H:%M:%S") if publish_ts else ""
+        except Exception:
+            publish_time = ""
+
         articles.append({
-            "title":       title_tag.get_text(strip=True),
-            "url":         title_tag.get("href", ""),
-            "description": desc_tag.get_text(strip=True) if desc_tag else "",
-            "time_str":    time_tag.get_text(strip=True) if time_tag else "",
-            "keyword":     keyword,
-            "crawled_at":  datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "title":        title,
+            "url":          url,
+            "description":  description,
+            "publish_time": publish_time,
+            "keyword":      keyword,
+            "crawled_at":   datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         })
 
     return articles
@@ -99,7 +118,7 @@ def crawl(keyword: str, pages: int = 3, fetch_content: bool = False,
         delay:         Thời gian nghỉ giữa các request (giây)
 
     Returns:
-        DataFrame với các cột: title, url, description, time_str, keyword, crawled_at, [content]
+        DataFrame với các cột: title, url, description, publish_time, keyword, crawled_at, [content]
     """
     all_articles = []
 
@@ -158,6 +177,6 @@ if __name__ == "__main__":
     if not df.empty:
         save(df, args.output)
         print("\n--- Preview 5 bài đầu ---")
-        print(df[["title", "description", "time_str"]].head().to_string(index=False))
+        print(df[["title", "description", "publish_time"]].head().to_string(index=False))
     else:
         print("[!] Không tìm thấy bài viết nào.")
