@@ -28,10 +28,6 @@ SEARCH_URL = "https://timkiem.vnexpress.net/"
 
 
 def search_vnexpress(keyword: str, page: int = 1) -> list[dict]:
-    """
-    Tìm kiếm bài viết VnExpress theo từ khoá.
-    Trả về danh sách dict: {title, url, description, publish_time, keyword, crawled_at}
-    """
     params = {
         "q": keyword,
         "media_type": "text",
@@ -53,32 +49,32 @@ def search_vnexpress(keyword: str, page: int = 1) -> list[dict]:
     soup = BeautifulSoup(resp.text, "html.parser")
     articles = []
 
-    # Selector đúng với HTML thực tế của VnExpress (class có thể là item-news-common, item-news-special...)
     for item in soup.select("article[data-url]"):
-        # Lấy URL từ attribute data-url (ổn định hơn href)
         url = item.get("data-url", "")
 
-        # Title: thẻ a trong h3 hoặc h2 có class title-news
-        title_tag = item.select_one(".title-news a")
-        if not title_tag:
-            # fallback: lấy thẻ a đầu tiên trong thumb
-            title_tag = item.select_one("a[title]")
-
+        # Title: text trong .title-news (không có thẻ a con)
+        title_tag = item.select_one(".title-news")
         if not title_tag:
             continue
-
-        title = title_tag.get_text(strip=True) or title_tag.get("title", "")
+        title = title_tag.get_text(strip=True)
+        if not title:
+            continue
 
         # Description
         desc_tag = item.select_one(".description")
         description = desc_tag.get_text(strip=True) if desc_tag else ""
 
-        # Thời gian publish từ data-publishtime (Unix timestamp)
+        # Thời gian từ data-publishtime (Unix timestamp)
         publish_ts = item.get("data-publishtime", "")
         try:
             publish_time = datetime.fromtimestamp(int(publish_ts)).strftime("%Y-%m-%d %H:%M:%S") if publish_ts else ""
         except Exception:
             publish_time = ""
+
+        # Fallback URL từ thumb nếu data-url trống
+        if not url:
+            a_tag = item.select_one("a[href]")
+            url = a_tag.get("href", "") if a_tag else ""
 
         articles.append({
             "title":        title,
@@ -87,13 +83,13 @@ def search_vnexpress(keyword: str, page: int = 1) -> list[dict]:
             "publish_time": publish_time,
             "keyword":      keyword,
             "crawled_at":   datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "content":      ""
         })
 
     return articles
 
 
 def get_article_content(url: str) -> str:
-    """Lấy nội dung toàn bài viết (optional, dùng để phân tích sâu hơn)."""
     if not url.startswith("http"):
         return ""
     try:
@@ -108,18 +104,6 @@ def get_article_content(url: str) -> str:
 
 def crawl(keyword: str, pages: int = 3, fetch_content: bool = False,
           delay: float = 1.5) -> pd.DataFrame:
-    """
-    Crawl nhiều trang kết quả tìm kiếm.
-
-    Args:
-        keyword:       Từ khoá tìm kiếm
-        pages:         Số trang cần crawl
-        fetch_content: Có lấy nội dung toàn bài không (chậm hơn)
-        delay:         Thời gian nghỉ giữa các request (giây)
-
-    Returns:
-        DataFrame với các cột: title, url, description, publish_time, keyword, crawled_at, [content]
-    """
     all_articles = []
 
     for page in range(1, pages + 1):
@@ -131,15 +115,14 @@ def crawl(keyword: str, pages: int = 3, fetch_content: bool = False,
                 print(f"    → Lấy nội dung: {art['title'][:60]}...")
                 art["content"] = get_article_content(art["url"])
                 time.sleep(delay)
-        else:
-            for art in articles:
-                art["content"] = ""
 
         all_articles.extend(articles)
         print(f"    ✓ Lấy được {len(articles)} bài")
         time.sleep(delay)
 
     df = pd.DataFrame(all_articles)
+    if df.empty:
+        return df
     df.drop_duplicates(subset="url", inplace=True)
     df.reset_index(drop=True, inplace=True)
     print(f"\n✅ Tổng cộng: {len(df)} bài (đã loại trùng)")
@@ -147,7 +130,6 @@ def crawl(keyword: str, pages: int = 3, fetch_content: bool = False,
 
 
 def save(df: pd.DataFrame, output_path: str):
-    """Lưu DataFrame ra CSV, tạo thư mục nếu chưa có."""
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     df.to_csv(output_path, index=False, encoding="utf-8-sig")
     print(f"💾 Đã lưu vào: {output_path}")
@@ -155,16 +137,11 @@ def save(df: pd.DataFrame, output_path: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Crawl bài viết VnExpress theo từ khoá")
-    parser.add_argument("--keyword",  type=str, default="công nghệ", help="Từ khoá tìm kiếm")
-    parser.add_argument("--pages",    type=int, default=3,           help="Số trang cần crawl")
-    parser.add_argument("--content",  action="store_true",           help="Lấy nội dung toàn bài")
-    parser.add_argument("--delay",    type=float, default=1.5,       help="Delay giữa request (giây)")
-    parser.add_argument(
-        "--output",
-        type=str,
-        default="data/processed/vnexpress_articles.csv",
-        help="Đường dẫn file CSV đầu ra"
-    )
+    parser.add_argument("--keyword",  type=str, default="công nghệ")
+    parser.add_argument("--pages",    type=int, default=3)
+    parser.add_argument("--content",  action="store_true")
+    parser.add_argument("--delay",    type=float, default=1.5)
+    parser.add_argument("--output",   type=str, default="data/processed/vnexpress_articles.csv")
     args = parser.parse_args()
 
     df = crawl(
