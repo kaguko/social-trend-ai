@@ -1,32 +1,59 @@
+# ==========================================
+# BÍ MẬT - TUYỆT ĐỐI KHÔNG PUSH LÊN GITHUB
+# ==========================================
+.env
+*.env
+data/config/.env
+
+# ==========================================
 # Python
+# ==========================================
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
 .Python
+
+# Virtual environments
 env/
 venv/
 .venv/
 
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# ==========================================
 # Jupyter
+# ==========================================
 .ipynb_checkpoints/
 *.ipynb_checkpoints
 
-# Data (không push dữ liệu thô lên git)
+# ==========================================
+# Dữ liệu (không push dữ liệu thô / nặng)
+# ==========================================
 data/raw/
 data/processed/
+
+# ==========================================
+# Model weights (file nặng, dùng HuggingFace Hub)
+# ==========================================
 models/*.bin
 models/*.pt
 models/*.pkl
+models/*.safetensors
 
-# Environment
-.env
-*.env
-
+# ==========================================
 # OS
+# ==========================================
 .DS_Store
 Thumbs.db
 
+# ==========================================
 # IDE
+# ==========================================
 .vscode/
 .idea/
+*.swp
+*.swo
