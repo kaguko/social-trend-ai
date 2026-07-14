@@ -14,6 +14,10 @@ import argparse
 import os
 from datetime import datetime
 from bs4 import BeautifulSoup
+from src.utils.logger import setup_logger
+from src.utils.retry import retry_on_network_error, CrawlerError
+
+logger = setup_logger("news_crawler")
 
 
 HEADERS = {
@@ -27,6 +31,7 @@ HEADERS = {
 SEARCH_URL = "https://timkiem.vnexpress.net/"
 
 
+@retry_on_network_error(max_attempts=3, min_wait=2.0, max_wait=10.0)
 def search_vnexpress(keyword: str, page: int = 1) -> list[dict]:
     params = {
         "q": keyword,
@@ -43,8 +48,8 @@ def search_vnexpress(keyword: str, page: int = 1) -> list[dict]:
         resp = requests.get(SEARCH_URL, params=params, headers=HEADERS, timeout=10)
         resp.raise_for_status()
     except requests.RequestException as e:
-        print(f"[!] Lỗi kết nối trang {page}: {e}")
-        return []
+        logger.error(f"Lỗi kết nối trang {page}: {e}")
+        raise CrawlerError(f"Failed to fetch page {page}") from e
 
     soup = BeautifulSoup(resp.text, "html.parser")
     articles = []
@@ -85,10 +90,13 @@ def search_vnexpress(keyword: str, page: int = 1) -> list[dict]:
             "crawled_at":   datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "content":      ""
         })
+    
+    logger.info(f"Trang {page}: Tìm thấy {len(articles)} bài viết")
 
     return articles
 
 
+@retry_on_network_error(max_attempts=2, min_wait=1.0, max_wait=5.0)
 def get_article_content(url: str) -> str:
     if not url.startswith("http"):
         return ""
@@ -97,9 +105,12 @@ def get_article_content(url: str) -> str:
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
         paragraphs = soup.select("article.fck_detail p")
-        return " ".join(p.get_text(strip=True) for p in paragraphs)
-    except Exception:
-        return ""
+        content = " ".join(p.get_text(strip=True) for p in paragraphs)
+        logger.debug(f"Lấy nội dung {len(content)} chars từ: {url[:60]}")
+        return content
+    except Exception as e:
+        logger.warning(f"Không lấy được nội dung từ {url[:60]}: {e}")
+        raise CrawlerError(f"Failed to fetch content") from e
 
 
 def crawl(keyword: str, pages: int = 3, fetch_content: bool = False,
@@ -107,32 +118,33 @@ def crawl(keyword: str, pages: int = 3, fetch_content: bool = False,
     all_articles = []
 
     for page in range(1, pages + 1):
-        print(f"[*] Crawl trang {page}/{pages} — từ khoá: '{keyword}'")
+        logger.info(f"Crawl trang {page}/{pages} — từ khoá: '{keyword}'")
         articles = search_vnexpress(keyword, page)
 
         if fetch_content:
             for art in articles:
-                print(f"    → Lấy nội dung: {art['title'][:60]}...")
+                logger.debug(f"→ Lấy nội dung: {art['title'][:60]}...")
                 art["content"] = get_article_content(art["url"])
                 time.sleep(delay)
 
         all_articles.extend(articles)
-        print(f"    ✓ Lấy được {len(articles)} bài")
+        logger.info(f"Trang {page}: Lấy được {len(articles)} bài")
         time.sleep(delay)
 
     df = pd.DataFrame(all_articles)
     if df.empty:
+        logger.warning("Không tìm thấy bài viết nào")
         return df
     df.drop_duplicates(subset="url", inplace=True)
     df.reset_index(drop=True, inplace=True)
-    print(f"\n✅ Tổng cộng: {len(df)} bài (đã loại trùng)")
+    logger.info(f"Tổng cộng: {len(df)} bài (đã loại trùng)")
     return df
 
 
 def save(df: pd.DataFrame, output_path: str):
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     df.to_csv(output_path, index=False, encoding="utf-8-sig")
-    print(f"💾 Đã lưu vào: {output_path}")
+    logger.info(f"Đã lưu {len(df)} bài vào: {output_path}")
 
 
 if __name__ == "__main__":
@@ -153,7 +165,7 @@ if __name__ == "__main__":
 
     if not df.empty:
         save(df, args.output)
-        print("\n--- Preview 5 bài đầu ---")
+        logger.info("Preview 5 bài đầu:")
         print(df[["title", "description", "publish_time"]].head().to_string(index=False))
     else:
-        print("[!] Không tìm thấy bài viết nào.")
+        logger.warning("Không tìm thấy bài viết nào.")

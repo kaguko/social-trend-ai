@@ -8,10 +8,14 @@ Các mức ưu tiên:
   LOW    — Bình thường, không cần hành động
 """
 
+import logging
+from src.utils.logger import setup_logger
 
 PRIORITY_HIGH = "HIGH"
 PRIORITY_MEDIUM = "MEDIUM"
 PRIORITY_LOW = "LOW"
+
+logger = setup_logger("recommender")
 
 
 class Recommender:
@@ -25,6 +29,7 @@ class Recommender:
         """
         priority = self._compute_priority(sentiment_neg_ratio, growth_rate, has_anomaly)
         recommendation = self._generate_recommendation(priority, sentiment_neg_ratio, growth_rate)
+        logger.info(f"Đánh giá topic '{topic}': {priority} (neg={sentiment_neg_ratio:.1%}, growth={growth_rate:.2f}x)")
         return {
             "topic": topic,
             "priority": priority,
@@ -36,8 +41,10 @@ class Recommender:
 
     def _compute_priority(self, neg_ratio: float, growth: float, anomaly: bool) -> str:
         if anomaly and neg_ratio > 0.5:
+            logger.warning(f"HIGH priority: anomaly + high negative ratio ({neg_ratio:.1%})")
             return PRIORITY_HIGH
         if neg_ratio > 0.4 or growth > 2.0 or anomaly:
+            logger.info(f"MEDIUM priority: neg={neg_ratio:.1%}, growth={growth:.2f}x, anomaly={anomaly}")
             return PRIORITY_MEDIUM
         return PRIORITY_LOW
 

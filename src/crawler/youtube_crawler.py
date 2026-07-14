@@ -18,16 +18,18 @@ import time
 import argparse
 from datetime import datetime
 from dotenv import load_dotenv
+from src.utils.logger import setup_logger
 
 load_dotenv()
 API_KEY = os.getenv("YOUTUBE_API_KEY", "")
 BASE_URL = "https://www.googleapis.com/youtube/v3"
+logger = setup_logger("youtube_crawler")
 
 
 def search_videos(query: str, max_results: int = 5) -> list[dict]:
     """Tìm video theo từ khoá, trả về danh sách {video_id, title}."""
     if not API_KEY:
-        print("[!] Chưa có YOUTUBE_API_KEY trong file .env")
+        logger.error("Chưa có YOUTUBE_API_KEY trong file .env")
         return []
 
     params = {
@@ -38,21 +40,28 @@ def search_videos(query: str, max_results: int = 5) -> list[dict]:
         "relevanceLanguage": "vi",
         "key": API_KEY
     }
-    resp = requests.get(f"{BASE_URL}/search", params=params, timeout=10)
-    data = resp.json()
+    try:
+        resp = requests.get(f"{BASE_URL}/search", params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        logger.error(f"Lỗi khi tìm video: {e}")
+        return []
+    
     videos = []
     for item in data.get("items", []):
         videos.append({
             "video_id": item["id"]["videoId"],
             "title":    item["snippet"]["title"]
         })
+    logger.info(f"Tìm thấy {len(videos)} video cho query: '{query}'")
     return videos
 
 
 def get_comments(video_id: str, max_comments: int = 100) -> list[dict]:
     """Lấy comments từ một video, trả về list dict."""
     if not API_KEY:
-        print("[!] Chưa có YOUTUBE_API_KEY trong file .env")
+        logger.error("Chưa có YOUTUBE_API_KEY trong file .env")
         return []
 
     comments = []
@@ -70,13 +79,15 @@ def get_comments(video_id: str, max_comments: int = 100) -> list[dict]:
 
         try:
             resp = requests.get(f"{BASE_URL}/commentThreads", params=params, timeout=10)
+            resp.raise_for_status()
             data = resp.json()
         except Exception as e:
-            print(f"[!] Lỗi: {e}")
+            logger.error(f"Lỗi khi lấy comments: {e}")
             break
 
         if "error" in data:
-            print(f"[!] API error: {data['error']['message']}")
+            error_msg = data['error'].get('message', 'Unknown error')
+            logger.error(f"API error: {error_msg}")
             break
 
         for item in data.get("items", []):
@@ -95,6 +106,7 @@ def get_comments(video_id: str, max_comments: int = 100) -> list[dict]:
             break
         time.sleep(0.5)
 
+    logger.info(f"Lấy được {len(comments)} comments từ video {video_id}")
     return comments
 
 
@@ -112,22 +124,22 @@ if __name__ == "__main__":
     if args.video_id:
         video_ids = [{"video_id": args.video_id, "title": "(manual)"}]
     else:
-        print(f"[*] Tìm video: '{args.search}'")
+        logger.info(f"Tìm video: '{args.search}'")
         video_ids = search_videos(args.search, args.max_videos)
-        print(f"[*] Tìm thấy {len(video_ids)} video")
+        logger.info(f"Tìm thấy {len(video_ids)} video")
 
     for v in video_ids:
-        print(f"[*] Lấy comments: {v['title'][:60]}")
+        logger.info(f"Lấy comments: {v['title'][:60]}")
         comments = get_comments(v["video_id"], args.max_comments)
         all_comments.extend(comments)
-        print(f"    ✓ {len(comments)} comments")
+        logger.info(f"Lấy được {len(comments)} comments")
         time.sleep(1)
 
     if all_comments:
         df = pd.DataFrame(all_comments)
         os.makedirs(os.path.dirname(args.output), exist_ok=True)
         df.to_csv(args.output, index=False, encoding="utf-8-sig")
-        print(f"\n✅ Đã lưu {len(df)} comments vào: {args.output}")
+        logger.info(f"Đã lưu {len(df)} comments vào: {args.output}")
         print(df[["text", "like_count", "published_at"]].head().to_string(index=False))
     else:
-        print("[!] Không lấy được comment nào.")
+        logger.warning("Không lấy được comment nào.")
