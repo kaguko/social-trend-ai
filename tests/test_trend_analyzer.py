@@ -116,6 +116,8 @@ class TestTrendAnalyzer:
         
         assert isinstance(result, pd.DataFrame)
         assert len(result) == 0
+        # Check columns exist even when empty
+        assert 'topic' in result.columns or len(result) == 0
     
     def test_trend_analyzer_custom_params(self):
         """Test TrendAnalyzer với custom parameters."""

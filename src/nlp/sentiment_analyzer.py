@@ -34,9 +34,8 @@ class SentimentAnalyzer:
     def predict(self, text: str) -> dict:
         try:
             result = self.pipe(str(text)[:512], truncation=True)[0]
-            label_map = {"negative": "negative", "neutral": "neutral", "positive": "positive",
-                         "LABEL_0": "negative", "LABEL_1": "neutral", "LABEL_2": "positive"}
-            label = label_map.get(result["label"].lower(), result["label"].lower())
+            label_map = {"LABEL_0": "negative", "LABEL_1": "neutral", "LABEL_2": "positive"}
+            label = label_map.get(result["label"], result["label"].lower())
             return {"label": label, "score": round(result["score"], 4)}
         except Exception as e:
             logger.error(f"Lỗi khi phân tích cảm xúc: {e}")

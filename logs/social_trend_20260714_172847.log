@@ -1,0 +1,8 @@
+2026-07-14 17:28:47 | INFO | trend_analyzer | detect_anomalies:35 | Phát hiện 1 điểm bất thường
+2026-07-14 17:28:47 | INFO | trend_analyzer | detect_anomalies:35 | Phát hiện 1 điểm bất thường
+2026-07-14 17:28:47 | INFO | trend_analyzer | get_trending_topics:43 | Phân tích 6 dòng, tìm top 2 trending topics
+2026-07-14 17:28:47 | INFO | trend_analyzer | get_trending_topics:57 | Top topic: AI
+2026-07-14 17:28:47 | INFO | trend_analyzer | get_trending_topics:43 | Phân tích 6 dòng, tìm top 2 trending topics
+2026-07-14 17:28:47 | INFO | trend_analyzer | get_trending_topics:57 | Top topic: AI
+2026-07-14 17:28:47 | INFO | trend_analyzer | get_trending_topics:43 | Phân tích 0 dòng, tìm top 5 trending topics
+2026-07-14 17:28:47 | INFO | trend_analyzer | get_trending_topics:57 | Top topic: N/A

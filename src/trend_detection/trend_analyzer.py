@@ -54,5 +54,11 @@ class TrendAnalyzer:
                 'latest_count': group['count'].iloc[-1]
             })
         result_df = pd.DataFrame(results)
-        logger.info(f"Top topic: {result_df.iloc[0]['topic'] if not result_df.empty else 'N/A'}")
+        
+        # Handle empty DataFrame
+        if result_df.empty:
+            logger.warning("Không có topics để phân tích")
+            return result_df
+        
+        logger.info(f"Top topic: {result_df.iloc[0]['topic']}")
         return result_df.sort_values('avg_growth', ascending=False).head(top_n)

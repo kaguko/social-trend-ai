@@ -1,0 +1,5 @@
+2026-07-14 17:28:47 | WARNING | recommender | _compute_priority:44 | HIGH priority: anomaly + high negative ratio (70.0%)
+2026-07-14 17:28:47 | INFO | recommender | evaluate:32 | Đánh giá topic 'test_topic': HIGH (neg=70.0%, growth=3.00x)
+2026-07-14 17:28:47 | INFO | recommender | _compute_priority:47 | MEDIUM priority: neg=10.0%, growth=2.50x, anomaly=False
+2026-07-14 17:28:47 | INFO | recommender | evaluate:32 | Đánh giá topic 'test_topic': MEDIUM (neg=10.0%, growth=2.50x)
+2026-07-14 17:28:47 | INFO | recommender | evaluate:32 | Đánh giá topic 'test_topic': LOW (neg=10.0%, growth=0.20x)
