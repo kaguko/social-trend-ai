@@ -4,6 +4,11 @@ import path from 'path';
 import { GoogleGenAI } from '@google/genai';
 import { INITIAL_TRENDS } from './src/data/mockTrends';
 import { ContentIdea, SocialTrend } from './src/types';
+import { getDbTrends, saveDbTrend, seedInitialTrendsIfEmpty, saveSentimentBenchmark, saveIdeaToDb, getSavedIdeasFromDb } from './src/db/trends';
+import { getOrCreateUser } from './src/db/users';
+import { optionalAuth, requireAuth, AuthRequest } from './src/middleware/auth';
+import { compareAllSentimentModels } from './src/lib/sentimentBenchmark';
+import { generateMLTimeSeriesData } from './src/lib/mlForecaster';
 
 const app = express();
 const PORT = 3000;
@@ -11,26 +16,28 @@ const PORT = 3000;
 app.use(cors());
 app.use(express.json());
 
-// In-memory trend database for custom added or generated trends
-let dynamicTrends: SocialTrend[] = [...INITIAL_TRENDS];
+// In-memory cache fallback
+let inMemoryTrends: SocialTrend[] = [...INITIAL_TRENDS];
 
-// Helper: Check available API integrations
+// Check platform credentials
 function getApiStatus() {
   const hasGemini = Boolean(process.env.GEMINI_API_KEY);
   const hasReddit = Boolean(process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET);
   const hasYoutube = Boolean(process.env.YOUTUBE_API_KEY);
   const hasOpenAi = Boolean(process.env.OPENAI_API_KEY);
+  const hasDatabase = Boolean(process.env.SQL_HOST && process.env.SQL_DB_NAME);
 
   return {
     hasGemini,
     hasReddit,
     hasYoutube,
     hasOpenAi,
+    hasDatabase,
+    databaseEngine: 'PostgreSQL (Cloud SQL)',
     mode: (hasGemini || hasReddit || hasYoutube) ? 'live-augmented' as const : 'simulated' as const,
   };
 }
 
-// Helper for timing out slow external API calls
 function withTimeout<T>(promise: Promise<T>, ms = 4500): Promise<T> {
   return Promise.race([
     promise,
@@ -38,23 +45,61 @@ function withTimeout<T>(promise: Promise<T>, ms = 4500): Promise<T> {
   ]);
 }
 
-// Lazy Gemini client helper
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
   return new GoogleGenAI({ apiKey });
 }
 
-// API Routes
+// ----------------------------------------------------
+// REST API Endpoints
+// ----------------------------------------------------
+
+// GET /api/status: Health and capability matrix
 app.get('/api/status', (req, res) => {
   res.json(getApiStatus());
 });
 
+// POST /api/auth/sync: Sync authenticated user into PostgreSQL
+app.post('/api/auth/sync', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'User token not verified' });
+    }
+    const { email, uid, name, picture } = req.user;
+    const dbUser = await getOrCreateUser(uid, email || `${uid}@guest.ai`, name, picture);
+    res.json({ success: true, user: dbUser });
+  } catch (error: any) {
+    console.error('Error syncing user:', error);
+    res.status(500).json({ error: error.message || 'Failed to sync user' });
+  }
+});
+
+// GET /api/trends: Retrieve trends from PostgreSQL (with fallback)
 app.get('/api/trends', async (req, res) => {
   try {
     const { platform, category, search } = req.query;
-    let results = [...dynamicTrends];
+    try {
+      const dbResults = await getDbTrends({
+        platform: typeof platform === 'string' ? platform : undefined,
+        category: typeof category === 'string' ? category : undefined,
+        search: typeof search === 'string' ? search : undefined,
+      });
 
+      if (dbResults && dbResults.length > 0) {
+        return res.json({
+          trends: dbResults,
+          total: dbResults.length,
+          source: 'PostgreSQL (Cloud SQL)',
+          status: getApiStatus()
+        });
+      }
+    } catch (dbErr) {
+      console.warn('PostgreSQL query fallback to memory cache:', dbErr);
+    }
+
+    // Fallback to memory
+    let results = [...inMemoryTrends];
     if (platform && platform !== 'all') {
       results = results.filter(t => t.platform === platform);
     }
@@ -73,6 +118,7 @@ app.get('/api/trends', async (req, res) => {
     res.json({
       trends: results,
       total: results.length,
+      source: 'In-Memory Cache',
       status: getApiStatus()
     });
   } catch (error: any) {
@@ -81,14 +127,15 @@ app.get('/api/trends', async (req, res) => {
   }
 });
 
-// POST /api/analyze-topic: Analyze any custom topic or keyword with AI
-app.post('/api/analyze-topic', async (req, res) => {
+// POST /api/analyze-topic: Multi-step AI analysis + ML forecast + PostgreSQL storage
+app.post('/api/analyze-topic', optionalAuth, async (req: AuthRequest, res) => {
   const { topic, platform = 'reddit', category = 'Tech & AI' } = req.body;
   if (!topic || typeof topic !== 'string') {
     return res.status(400).json({ error: 'A valid topic is required' });
   }
 
   const gemini = getGeminiClient();
+  let calculatedTrend: SocialTrend | null = null;
 
   if (gemini) {
     try {
@@ -135,12 +182,15 @@ Do NOT include markdown backticks around the JSON.`;
       const cleanJson = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
       const parsed = JSON.parse(cleanJson);
 
-      const newTrend: SocialTrend = {
+      const score = parsed.score || 88;
+      const ml = generateMLTimeSeriesData(score, (category as any) || 'Tech & AI');
+
+      calculatedTrend = {
         id: `tr-${Date.now()}`,
         title: parsed.title || topic,
         platform: (platform as any) || 'reddit',
         category: (category as any) || 'Tech & AI',
-        score: parsed.score || 88,
+        score: score,
         growthRate: parsed.growthRate || '+240% this week',
         volume: parsed.volume || '1.8M impressions',
         sentiment: parsed.sentiment || 'positive',
@@ -159,58 +209,115 @@ Do NOT include markdown backticks around the JSON.`;
           `Why ${topic} is blowing up everywhere right now.`
         ],
         createdAt: 'Just now',
-        isRealTime: true
+        isRealTime: true,
+        predictedPeakDays: ml.predictedPeakDays,
+        predictedViralProbability: ml.predictedViralProbability,
+        mlMomentumSlope: ml.mlMomentumSlope,
+        historicalDataPoints: ml.historicalDataPoints,
       };
-
-      // Prepend to dynamic list
-      dynamicTrends = [newTrend, ...dynamicTrends];
-
-      return res.json({ trend: newTrend, aiGenerated: true });
     } catch (err: any) {
-      console.warn('Gemini API call failed, falling back to heuristic trend synthesis:', err.message);
+      console.warn('Gemini API call failed, falling back to heuristic ML trend synthesis:', err.message);
     }
   }
 
-  // Fallback intelligent simulation
-  const score = Math.floor(Math.random() * 20) + 78;
-  const growthNum = Math.floor(Math.random() * 350) + 120;
-  const volumeNum = (Math.random() * 4 + 0.8).toFixed(1);
+  // Fallback heuristic if Gemini was absent or timed out
+  if (!calculatedTrend) {
+    const score = Math.floor(Math.random() * 20) + 78;
+    const growthNum = Math.floor(Math.random() * 350) + 120;
+    const volumeNum = (Math.random() * 4 + 0.8).toFixed(1);
+    const ml = generateMLTimeSeriesData(score, (category as any) || 'Tech & AI');
 
-  const fallbackTrend: SocialTrend = {
-    id: `tr-${Date.now()}`,
-    title: topic.trim(),
-    platform: (platform as any) || 'reddit',
-    category: (category as any) || 'Tech & AI',
-    score: score,
-    growthRate: `+${growthNum}% this week`,
-    volume: platform === 'youtube' || platform === 'tiktok' ? `${volumeNum}M views` : `${(Math.random() * 50 + 15).toFixed(1)}K upvotes`,
-    sentiment: 'positive',
-    sentimentScore: Math.floor(Math.random() * 15) + 78,
-    summary: `Rapidly accelerating user interest and engagement around "${topic}". Community members are actively debating best practices, novel use cases, and creative adaptations across ${platform}.`,
-    keyTopics: [topic, 'Creator Insights', 'Audience Growth', 'Algorithm Spike'],
-    demographics: {
-      primaryAge: '21 - 36',
-      topInterest: `${category} & Digital Trends`,
-      genderSkew: '58% Male / 42% Female',
-      peakPlatform: platform.toUpperCase()
-    },
-    audienceEngagement: Math.floor(Math.random() * 15) + 82,
-    suggestedHooks: [
-      `Nobody is talking about the biggest shift happening in ${topic}...`,
-      `I tested ${topic} for 7 days, and the results completely changed my strategy.`,
-      `Here is the step-by-step breakdown of why ${topic} is taking over right now.`
-    ],
-    createdAt: 'Just now',
-    isRealTime: false
-  };
+    calculatedTrend = {
+      id: `tr-${Date.now()}`,
+      title: topic.trim(),
+      platform: (platform as any) || 'reddit',
+      category: (category as any) || 'Tech & AI',
+      score: score,
+      growthRate: `+${growthNum}% this week`,
+      volume: platform === 'youtube' || platform === 'tiktok' ? `${volumeNum}M views` : `${(Math.random() * 50 + 15).toFixed(1)}K upvotes`,
+      sentiment: 'positive',
+      sentimentScore: Math.floor(Math.random() * 15) + 78,
+      summary: `Rapidly accelerating user interest and engagement around "${topic}". Community members are actively debating best practices, novel use cases, and creative adaptations across ${platform}.`,
+      keyTopics: [topic, 'Creator Insights', 'Audience Growth', 'Algorithm Spike'],
+      demographics: {
+        primaryAge: '21 - 36',
+        topInterest: `${category} & Digital Trends`,
+        genderSkew: '58% Male / 42% Female',
+        peakPlatform: platform.toUpperCase()
+      },
+      audienceEngagement: Math.floor(Math.random() * 15) + 82,
+      suggestedHooks: [
+        `Nobody is talking about the biggest shift happening in ${topic}...`,
+        `I tested ${topic} for 7 days, and the results completely changed my strategy.`,
+        `Here is the step-by-step breakdown of why ${topic} is taking over right now.`
+      ],
+      createdAt: 'Just now',
+      isRealTime: false,
+      predictedPeakDays: ml.predictedPeakDays,
+      predictedViralProbability: ml.predictedViralProbability,
+      mlMomentumSlope: ml.mlMomentumSlope,
+      historicalDataPoints: ml.historicalDataPoints,
+    };
+  }
 
-  dynamicTrends = [fallbackTrend, ...dynamicTrends];
-  res.json({ trend: fallbackTrend, aiGenerated: false });
+  // Save to PostgreSQL database
+  try {
+    const saved = await saveDbTrend(calculatedTrend, req.user?.uid);
+    inMemoryTrends = [saved, ...inMemoryTrends];
+    return res.json({ trend: saved, persistedToDb: true });
+  } catch (dbSaveErr) {
+    console.warn('Could not save to PostgreSQL, kept in memory:', dbSaveErr);
+    inMemoryTrends = [calculatedTrend, ...inMemoryTrends];
+    return res.json({ trend: calculatedTrend, persistedToDb: false });
+  }
 });
 
-// POST /api/generate-ideas: Generate viral content ideas from a trend
+// POST /api/evaluate-sentiment: Multi-model Sentiment Benchmark comparison
+// Compares VADER vs RoBERTa vs DistilBERT vs Gemini LLM
+app.post('/api/evaluate-sentiment', optionalAuth, async (req: AuthRequest, res) => {
+  try {
+    const { text, trendTitle, trendId, existingScore } = req.body;
+    if (!text || typeof text !== 'string') {
+      return res.status(400).json({ error: 'Text is required for sentiment benchmark' });
+    }
+
+    const benchmark = compareAllSentimentModels(text, trendTitle, existingScore);
+
+    // Save benchmark run to database
+    await saveSentimentBenchmark(trendId, benchmark);
+
+    res.json({
+      benchmark,
+      persistedToPostgreSQL: true,
+      evaluatedAt: new Date().toISOString()
+    });
+  } catch (error: any) {
+    console.error('Error evaluating sentiment models:', error);
+    res.status(500).json({ error: error.message || 'Sentiment evaluation failed' });
+  }
+});
+
+// POST /api/predict-ml: Deep Machine Learning Trend Forecast
+app.post('/api/predict-ml', (req, res) => {
+  try {
+    const { score = 80, category = 'Tech & AI' } = req.body;
+    const ml = generateMLTimeSeriesData(Number(score), String(category));
+    res.json({
+      forecast: ml,
+      methodology: {
+        model: 'Polynomial Momentum Regression + EMA Volatility + Sigmoid Virality Classifier',
+        features: ['Velocity slope (dV/dt)', 'Rolling variance', 'Category attention half-life', 'Peak day decay'],
+        confidenceInterval: '95% (1.96 standard deviations)'
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'ML Prediction failed' });
+  }
+});
+
+// POST /api/generate-ideas: Generate viral content ideas
 app.post('/api/generate-ideas', async (req, res) => {
-  const { trendTitle, category = 'General', platform = 'All', creatorNiche = 'Content Creator' } = req.body;
+  const { trendTitle, category = 'General', platform = 'All', creatorNiche = 'Content Creator', trendId } = req.body;
   if (!trendTitle) {
     return res.status(400).json({ error: 'Trend title is required' });
   }
@@ -264,6 +371,9 @@ Output ONLY pure JSON. Do not include markdown code block tags.`;
       const cleanJson = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
       const parsed: ContentIdea[] = JSON.parse(cleanJson);
 
+      // Attach trendId
+      parsed.forEach(i => i.trendId = trendId);
+
       return res.json({ ideas: parsed, aiGenerated: true });
     } catch (err: any) {
       console.warn('Gemini ideas generation failed, using fallback:', err.message);
@@ -274,6 +384,7 @@ Output ONLY pure JSON. Do not include markdown code block tags.`;
   const fallbackIdeas: ContentIdea[] = [
     {
       id: `idea-${Date.now()}-1`,
+      trendId,
       trendTitle,
       contentType: 'Short/Reel',
       title: `The 60-Second Breakdown of ${trendTitle}`,
@@ -293,6 +404,7 @@ Output ONLY pure JSON. Do not include markdown code block tags.`;
     },
     {
       id: `idea-${Date.now()}-2`,
+      trendId,
       trendTitle,
       contentType: 'Viral Thread',
       title: `The Comprehensive Playbook on ${trendTitle}`,
@@ -313,6 +425,7 @@ Output ONLY pure JSON. Do not include markdown code block tags.`;
     },
     {
       id: `idea-${Date.now()}-3`,
+      trendId,
       trendTitle,
       contentType: 'Long Video',
       title: `How ${trendTitle} Is Changing Everything (Deep Dive)`,
@@ -336,8 +449,32 @@ Output ONLY pure JSON. Do not include markdown code block tags.`;
   res.json({ ideas: fallbackIdeas, aiGenerated: false });
 });
 
+// POST /api/saved-ideas: Save idea to PostgreSQL
+app.post('/api/saved-ideas', optionalAuth, async (req: AuthRequest, res) => {
+  try {
+    const idea: ContentIdea = req.body;
+    await saveIdeaToDb(idea, req.user?.uid);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to save idea' });
+  }
+});
+
+// GET /api/saved-ideas: Get saved ideas from PostgreSQL
+app.get('/api/saved-ideas', optionalAuth, async (req: AuthRequest, res) => {
+  try {
+    const ideas = await getSavedIdeasFromDb(req.user?.uid);
+    res.json({ ideas });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to fetch saved ideas' });
+  }
+});
+
 // Setup Vite middleware in dev or static serve in prod
 async function startServer() {
+  // Seed PostgreSQL database asynchronously on start
+  seedInitialTrendsIfEmpty().catch(e => console.warn('Database seed skipped:', e));
+
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
@@ -354,7 +491,7 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Social Trend AI] Server is running at http://0.0.0.0:${PORT}`);
+    console.log(`[Social Trend AI] Backend API + Vite listening at http://0.0.0.0:${PORT}`);
   });
 }
 

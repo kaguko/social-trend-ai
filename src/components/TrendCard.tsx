@@ -1,17 +1,21 @@
 import React, { useState } from 'react';
-import { Sparkles, Users, TrendingUp, Copy, Check, ExternalLink, ArrowUpRight } from 'lucide-react';
+import { Sparkles, Users, TrendingUp, Copy, Check, LineChart, Cpu, Zap, ArrowUpRight } from 'lucide-react';
 import { SocialTrend } from '../types';
 
 interface TrendCardProps {
   trend: SocialTrend;
   onGenerateIdeas: (trend: SocialTrend) => void;
   onViewDemographics: (trend: SocialTrend) => void;
+  onViewMLForecast?: (trend: SocialTrend) => void;
+  onRunSentimentBenchmark?: (trend: SocialTrend) => void;
 }
 
 export const TrendCard: React.FC<TrendCardProps> = ({
   trend,
   onGenerateIdeas,
   onViewDemographics,
+  onViewMLForecast,
+  onRunSentimentBenchmark,
 }) => {
   const [copiedHook, setCopiedHook] = useState(false);
 
@@ -60,13 +64,17 @@ export const TrendCard: React.FC<TrendCardProps> = ({
     }
   };
 
+  const viralProbPercent = trend.predictedViralProbability 
+    ? Math.round(trend.predictedViralProbability * 100) 
+    : 85;
+
   return (
     <div
       id={`trend-card-${trend.id}`}
       className="group relative flex flex-col justify-between bg-slate-900/80 hover:bg-slate-900 border border-slate-800/90 hover:border-slate-700/90 rounded-2xl p-5 transition-all duration-200 shadow-sm hover:shadow-xl hover:shadow-indigo-950/20"
     >
       <div>
-        {/* Card Header: Platform, Category, Score */}
+        {/* Card Header: Platform, Category, Virality Score */}
         <div className="flex items-center justify-between gap-2 mb-3">
           <div className="flex items-center gap-2">
             <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${platformStyle.bg}`}>
@@ -85,7 +93,6 @@ export const TrendCard: React.FC<TrendCardProps> = ({
                 {trend.score}/100
               </span>
             </div>
-            {/* Small circular/pill score indicator */}
             <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center font-bold text-xs text-indigo-300">
               {trend.score}
             </div>
@@ -102,8 +109,8 @@ export const TrendCard: React.FC<TrendCardProps> = ({
           {trend.summary}
         </p>
 
-        {/* Metrics Row: Growth & Volume */}
-        <div className="grid grid-cols-2 gap-2 mb-4 p-2.5 bg-slate-950/60 rounded-xl border border-slate-800/60 text-xs">
+        {/* Metrics Row: Momentum Rate, Community Volume & ML Forecast Indicator */}
+        <div className="grid grid-cols-2 gap-2 mb-3 p-2.5 bg-slate-950/60 rounded-xl border border-slate-800/60 text-xs">
           <div>
             <span className="text-[11px] text-slate-500 block mb-0.5">Momentum Rate</span>
             <span className="font-semibold text-emerald-400 flex items-center gap-1">
@@ -112,15 +119,41 @@ export const TrendCard: React.FC<TrendCardProps> = ({
             </span>
           </div>
           <div>
-            <span className="text-[11px] text-slate-500 block mb-0.5">Community Volume</span>
-            <span className="font-semibold text-slate-200">
-              {trend.volume}
+            <span className="text-[11px] text-slate-500 block mb-0.5">ML Viral Prob</span>
+            <span className="font-semibold text-violet-400 flex items-center gap-1">
+              <Zap className="w-3.5 h-3.5" />
+              {viralProbPercent}%
             </span>
           </div>
         </div>
 
+        {/* Action Pills for ML Models & Benchmarking */}
+        <div className="flex items-center gap-2 mb-4">
+          {onViewMLForecast && (
+            <button
+              onClick={() => onViewMLForecast(trend)}
+              className="flex-1 inline-flex items-center justify-center gap-1.5 py-1 px-2 rounded-lg text-xs font-medium bg-slate-800/60 hover:bg-slate-800 text-slate-300 border border-slate-700/50 hover:border-slate-600 transition"
+              title="View Time-series trajectory and ML momentum slope"
+            >
+              <LineChart className="w-3.5 h-3.5 text-indigo-400" />
+              <span>ML Forecast</span>
+            </button>
+          )}
+
+          {onRunSentimentBenchmark && (
+            <button
+              onClick={() => onRunSentimentBenchmark(trend)}
+              className="flex-1 inline-flex items-center justify-center gap-1.5 py-1 px-2 rounded-lg text-xs font-medium bg-slate-800/60 hover:bg-slate-800 text-slate-300 border border-slate-700/50 hover:border-slate-600 transition"
+              title="Evaluate text across 4 NLP Sentiment Architectures"
+            >
+              <Cpu className="w-3.5 h-3.5 text-violet-400" />
+              <span>Eval Models</span>
+            </button>
+          )}
+        </div>
+
         {/* Key Topic Chips */}
-        <div className="flex flex-wrap gap-1.5 mb-5">
+        <div className="flex flex-wrap gap-1.5 mb-4">
           {trend.keyTopics.slice(0, 4).map((topic, i) => (
             <span
               key={i}
