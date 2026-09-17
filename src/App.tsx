@@ -8,10 +8,11 @@ import { AnalyzeTopicModal } from './components/AnalyzeTopicModal';
 import { SettingsModal } from './components/SettingsModal';
 import { SentimentBenchmarkModal } from './components/SentimentBenchmarkModal';
 import { MLForecastModal } from './components/MLForecastModal';
+import { ApiDocsModal } from './components/ApiDocsModal';
 import { INITIAL_TRENDS } from './data/mockTrends';
 import { SocialTrend, FilterState, ApiStatus, SentimentBenchmarkComparison, UserProfile } from './types';
 import { TrendingUp, Flame, Zap, BarChart2, Sparkles, RefreshCw, Cpu, Database, ShieldCheck } from 'lucide-react';
-import { auth, googleAuthProvider } from './lib/firebase';
+import { auth, googleAuthProvider, isFirebaseConfigured } from './lib/firebase';
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 
 export default function App() {
@@ -38,9 +39,22 @@ export default function App() {
   const [isBenchmarkLoading, setIsBenchmarkLoading] = useState(false);
   const [isAnalyzeOpen, setIsAnalyzeOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isApiDocsOpen, setIsApiDocsOpen] = useState(false);
 
-  // Listen to Firebase Auth state
+  // Listen to Firebase Auth state (or load persisted session)
   useEffect(() => {
+    if (!auth) {
+      const savedUser = localStorage.getItem('social_trend_ai_user');
+      if (savedUser) {
+        try {
+          setUser(JSON.parse(savedUser));
+        } catch {
+          // ignore parsing error
+        }
+      }
+      return;
+    }
+
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         const token = await currentUser.getIdToken();
@@ -51,6 +65,7 @@ export default function App() {
           photoURL: currentUser.photoURL || undefined,
         };
         setUser(profile);
+        localStorage.setItem('social_trend_ai_user', JSON.stringify(profile));
 
         // Sync to PostgreSQL
         try {
@@ -67,6 +82,7 @@ export default function App() {
         }
       } else {
         setUser(null);
+        localStorage.removeItem('social_trend_ai_user');
       }
     });
 
@@ -74,19 +90,48 @@ export default function App() {
   }, []);
 
   const handleSignIn = async () => {
+    if (auth && googleAuthProvider && isFirebaseConfigured) {
+      try {
+        await signInWithPopup(auth, googleAuthProvider);
+        return;
+      } catch (err) {
+        console.warn('Google sign-in popup closed or deferred, activating demo analyst session:', err);
+      }
+    }
+
+    // Seamless fallback to demo analyst profile
+    const demoProfile: UserProfile = {
+      uid: 'demo-analyst-1',
+      email: 'analyst@trendai.internal',
+      displayName: 'Research Analyst (Demo)',
+    };
+    setUser(demoProfile);
+    localStorage.setItem('social_trend_ai_user', JSON.stringify(demoProfile));
+
     try {
-      await signInWithPopup(auth, googleAuthProvider);
-    } catch (err) {
-      console.error('Sign-in error:', err);
+      await fetch('/api/auth/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer demo-token'
+        },
+        body: JSON.stringify({ uid: demoProfile.uid })
+      });
+    } catch (e) {
+      console.warn('Could not sync demo user:', e);
     }
   };
 
   const handleSignOut = async () => {
-    try {
-      await signOut(auth);
-    } catch (err) {
-      console.error('Sign-out error:', err);
+    if (auth) {
+      try {
+        await signOut(auth);
+      } catch (err) {
+        console.error('Sign-out error:', err);
+      }
     }
+    setUser(null);
+    localStorage.removeItem('social_trend_ai_user');
   };
 
   // Fetch status and dynamic trends from server
@@ -212,6 +257,7 @@ export default function App() {
         apiStatus={apiStatus}
         onOpenAnalyze={() => setIsAnalyzeOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenApiDocs={() => setIsApiDocsOpen(true)}
         trendCount={trends.length}
         user={user}
         onSignIn={handleSignIn}
@@ -361,6 +407,11 @@ export default function App() {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         apiStatus={apiStatus}
+      />
+
+      <ApiDocsModal
+        isOpen={isApiDocsOpen}
+        onClose={() => setIsApiDocsOpen(false)}
       />
     </div>
   );

@@ -1,11 +1,12 @@
 import React from 'react';
-import { Flame, Sparkles, SlidersHorizontal, Radio, Database, Cpu, LogIn, User } from 'lucide-react';
+import { Flame, Sparkles, SlidersHorizontal, Radio, Database, Cpu, LogIn, User, BookOpen } from 'lucide-react';
 import { ApiStatus, UserProfile } from '../types';
 
 interface HeaderProps {
   apiStatus: ApiStatus | null;
   onOpenAnalyze: () => void;
   onOpenSettings: () => void;
+  onOpenApiDocs?: () => void;
   trendCount: number;
   user?: UserProfile | null;
   onSignIn?: () => void;
@@ -16,6 +17,7 @@ export const Header: React.FC<HeaderProps> = ({
   apiStatus,
   onOpenAnalyze,
   onOpenSettings,
+  onOpenApiDocs,
   trendCount,
   user,
   onSignIn,
@@ -46,7 +48,7 @@ export const Header: React.FC<HeaderProps> = ({
               </span>
             </div>
             <p className="text-xs text-slate-400">
-              Cross-platform signals • ML Trajectory • 4-Model NLP Benchmark • {trendCount} active topics
+              Cross-platform signals • ML Trajectory (RMSE/MAE) • Gold Standard Benchmark • {trendCount} active topics
             </p>
           </div>
         </div>
@@ -61,6 +63,18 @@ export const Header: React.FC<HeaderProps> = ({
             <Sparkles className="w-4 h-4 text-indigo-200" />
             <span>Analyze Topic</span>
           </button>
+
+          {onOpenApiDocs && (
+            <button
+              id="api-docs-btn"
+              onClick={onOpenApiDocs}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border border-slate-700/60 transition"
+              title="REST API & OpenAPI Specification"
+            >
+              <BookOpen className="w-4 h-4 text-indigo-400" />
+              <span className="hidden sm:inline">API Docs</span>
+            </button>
+          )}
 
           <button
             id="settings-btn"
@@ -98,7 +112,7 @@ export const Header: React.FC<HeaderProps> = ({
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium bg-indigo-950/60 hover:bg-indigo-900/60 text-indigo-200 border border-indigo-500/30 transition"
             >
               <LogIn className="w-4 h-4" />
-              <span className="hidden sm:inline">Google Sign-In</span>
+              <span>Google Sign-In</span>
             </button>
           ) : null}
         </div>

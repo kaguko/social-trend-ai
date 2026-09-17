@@ -19,6 +19,27 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
   }
 
   const token = authHeader.split('Bearer ')[1];
+
+  // Handle local demo session tokens
+  if (token === 'demo-token' || token.startsWith('demo-')) {
+    req.user = {
+      uid: req.body?.uid || 'demo-analyst-1',
+      email: 'analyst@trendai.internal',
+      name: 'Research Analyst (Demo)',
+    };
+    return next();
+  }
+
+  if (!adminAuth) {
+    // If Firebase Admin Auth is not configured, fall back to guest session
+    req.user = {
+      uid: req.body?.uid || 'local-creator',
+      email: 'creator@trendai.internal',
+      name: 'Local Creator',
+    };
+    return next();
+  }
+
   try {
     const decodedToken = await adminAuth.verifyIdToken(token);
     req.user = {
@@ -41,16 +62,29 @@ export async function optionalAuth(req: AuthRequest, res: Response, next: NextFu
   }
 
   const token = authHeader.split('Bearer ')[1];
-  try {
-    const decodedToken = await adminAuth.verifyIdToken(token);
+
+  if (token === 'demo-token' || token.startsWith('demo-')) {
     req.user = {
-      uid: decodedToken.uid,
-      email: decodedToken.email,
-      name: decodedToken.name,
-      picture: decodedToken.picture,
+      uid: 'demo-analyst-1',
+      email: 'analyst@trendai.internal',
+      name: 'Research Analyst (Demo)',
     };
-  } catch (error) {
-    // Optional auth: continue without user if token is invalid
+    return next();
   }
+
+  if (adminAuth) {
+    try {
+      const decodedToken = await adminAuth.verifyIdToken(token);
+      req.user = {
+        uid: decodedToken.uid,
+        email: decodedToken.email,
+        name: decodedToken.name,
+        picture: decodedToken.picture,
+      };
+    } catch (error) {
+      // Optional auth: continue without user if token is invalid
+    }
+  }
+
   next();
 }

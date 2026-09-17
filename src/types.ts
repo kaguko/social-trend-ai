@@ -17,13 +17,27 @@ export interface DemographicData {
 }
 
 export interface HistoricalDataPoint {
-  timestamp: string; // ISO date or formatted time
+  timestamp: string;
   score: number;
   zScore: number;
-  growthRate: number; // percentage
-  mlPredictedMomentum: number; // ML forecast
+  growthRate: number;
+  mlPredictedMomentum: number;
   upperBound: number;
   lowerBound: number;
+  actualScore?: number; // Ground truth observation when backtesting
+}
+
+export interface MLAccuracyMetrics {
+  rmse: number; // Root Mean Square Error
+  mae: number;  // Mean Absolute Error
+  mape: number; // Mean Absolute Percentage Error (%)
+  rSquared: number; // Coefficient of determination
+  classificationAccuracy: number; // For viral threshold (>80 score)
+  precision: number;
+  recall: number;
+  f1Score: number;
+  evaluationSampleCount: number;
+  methodologyNotes: string;
 }
 
 export interface SocialTrend {
@@ -50,6 +64,7 @@ export interface SocialTrend {
   predictedViralProbability?: number; // 0-1
   mlMomentumSlope?: number;
   historicalDataPoints?: HistoricalDataPoint[];
+  accuracyMetrics?: MLAccuracyMetrics;
 }
 
 export interface MLForecastResult {
@@ -60,6 +75,7 @@ export interface MLForecastResult {
   volatilityIndex: number;
   historicalDataPoints: HistoricalDataPoint[];
   summary: string;
+  accuracyMetrics: MLAccuracyMetrics;
 }
 
 export interface SentimentModelResult {
@@ -73,6 +89,16 @@ export interface SentimentModelResult {
   explanation?: string;
   strengths: string[];
   weaknesses: string[];
+  // Ground truth evaluation metrics
+  matchesGroundTruth?: boolean;
+  errorDistance?: number;
+}
+
+export interface ErrorDiscrepancyAnalysis {
+  modelName: string;
+  discrepancyType: 'False Positive' | 'False Negative' | 'Subtle Irony / Sarcasm Misclassification' | 'Slang / Lexical Drift' | 'Calibrated Match';
+  rootCause: string;
+  mitigationStrategy: string;
 }
 
 export interface SentimentBenchmarkComparison {
@@ -80,6 +106,11 @@ export interface SentimentBenchmarkComparison {
   trendTitle?: string;
   inputText: string;
   evaluatedAt: string;
+  // Ground truth annotation
+  groundTruthSentiment: 'positive' | 'neutral' | 'negative';
+  groundTruthAnnotator: 'Human Expert Consensus (Gold Standard)' | 'Gold Standard Cross-Validated';
+  groundTruthConfidence: number;
+  groundTruthRationale: string;
   models: {
     vader: SentimentModelResult;
     roberta: SentimentModelResult;
@@ -88,6 +119,8 @@ export interface SentimentBenchmarkComparison {
   };
   consensusSentiment: 'positive' | 'neutral' | 'negative';
   consensusAgreementPercent: number;
+  bestPerformingModel: string;
+  errorAnalyses: ErrorDiscrepancyAnalysis[];
   analysisSummary: string;
 }
 

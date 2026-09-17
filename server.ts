@@ -9,6 +9,7 @@ import { getOrCreateUser } from './src/db/users';
 import { optionalAuth, requireAuth, AuthRequest } from './src/middleware/auth';
 import { compareAllSentimentModels } from './src/lib/sentimentBenchmark';
 import { generateMLTimeSeriesData } from './src/lib/mlForecaster';
+import { openApiSpec } from './src/lib/openApiSpec';
 
 const app = express();
 const PORT = 3000;
@@ -58,6 +59,11 @@ function getGeminiClient(): GoogleGenAI | null {
 // GET /api/status: Health and capability matrix
 app.get('/api/status', (req, res) => {
   res.json(getApiStatus());
+});
+
+// GET /api/openapi.json: OpenAPI 3.1 Specification for Swagger/Redoc
+app.get('/api/openapi.json', (req, res) => {
+  res.json(openApiSpec);
 });
 
 // POST /api/auth/sync: Sync authenticated user into PostgreSQL
