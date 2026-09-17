@@ -4,6 +4,8 @@
 .env
 *.env
 data/config/.env
+firebase-applet-config.json
+!firebase-applet-config.example.json
 
 # ==========================================
 # Python

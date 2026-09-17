@@ -84,7 +84,7 @@ So sánh song song 4 kiến trúc NLP & AI khác nhau trên cùng một ngữ c�
 npm install
 ```
 
-### 2. Cấu hình biến môi trường
+### 2. Cấu hình biến môi trường & Firebase
 Tạo file `.env` dựa trên `.env.example`:
 ```env
 GEMINI_API_KEY=your_gemini_api_key
@@ -95,6 +95,9 @@ SQL_PASSWORD=your_db_password
 SQL_ADMIN_USER=ai_studio_admin
 SQL_ADMIN_PASSWORD=your_admin_password
 ```
+
+Đồng thời tạo file `firebase-applet-config.json` (dựa trên `firebase-applet-config.example.json`):
+*Lưu ý: File này chứa API credentials và đã được đưa vào `.gitignore` để không bị push lên GitHub public.*
 
 ### 3. Khởi chạy môi trường phát triển
 ```bash
