@@ -1,0 +1,6 @@
+{
+  "name": "Social Trend AI",
+  "description": "AI-powered social media trend tracker and viral content generator for Reddit, YouTube, and cross-platform creators.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
